@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>custom training probe</title></head>
+<body>
+<iframe id="f" src="../index.html#/home" style="width:390px;height:844px;border:0"></iframe>
+<pre id="result">PENDING</pre>
+<script>
+const R = [];
+const ok = (n, c, e) => R.push((c ? 'PASS' : 'FAIL') + '  ' + n + (e ? '  ' + e : ''));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const f = document.getElementById('f');
+const doc = () => f.contentDocument;
+const win = () => f.contentWindow;
+const q = (s) => doc().querySelector(s);
+const qa = (s) => Array.from(doc().querySelectorAll(s));
+const out = document.getElementById('result');
+async function until(fn, ms = 6000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { try { if (fn()) return true; } catch (e) {} await sleep(50); }
+  return false;
+}
+const go = async (r) => { win().location.hash = '#/' + r; await sleep(240); };
+const plans0 = () => { try { return (JSON.parse(win().localStorage.getItem('os:plans')) || [])[0]; } catch (e) { return null; } };
+const readLS = (k) => { try { return JSON.parse(win().localStorage.getItem(k)); } catch (e) { return null; } };
+
+// 今天按「全 push」轮转，assertion 不依赖真实日期落在哪个分化
+const FORCED = 'push';
+
+(async () => {
+  try {
+    await until(() => doc() && q('.app-shell'));
+    ok('app_ready', !!q('.app-shell'));
+    win().addEventListener('error', (e) => R.push('PAGE_ERROR ' + e.message));
+
+    // --- 固定今日分化为 push（避免真实日期撞上 rest 日导致后续断言全挂）---
+    const plansRaw = readLS('os:plans') || [];
+    if (plansRaw[0]) {
+      plansRaw[0].schedule = { pattern: Array(7).fill(FORCED) };
+      win().localStorage.setItem('os:plans', JSON.stringify(plansRaw));
+    }
+    win().location.reload();
+    await until(() => doc() && q('.app-shell'));
+    await sleep(200);
+    ok('forced_split_persisted', ((plans0() || {}).schedule || {}).pattern?.[0] === FORCED,
+       'pattern=' + JSON.stringify(((plans0() || {}).schedule || {}).pattern || null));
+
+    // --- 进入计划编辑：4 个分化卡；行数按实际模板算，不写死 ---
+    await go('plan-edit');
+    await until(() => q('.tpl-card[data-split="push"]'));
+    ok('tpl_cards_4', qa('.tpl-card').length === 4, 'n=' + qa('.tpl-card').length);
+    const baseRows = qa('.ex-edit-row').length;
+    const card0 = () => q('.tpl-card[data-split="push"]');
+    const pushRows = card0() ? card0().querySelectorAll('.ex-edit-row').length : 0;
+    ok('ex_rows_present', baseRows > 0 && pushRows > 0, 'all=' + baseRows + ' push=' + pushRows);
+    ok('old_picklist_gone', qa('[data-ex]').length === 0, 'data-ex=' + qa('[data-ex]').length);
+
+    // --- 入场动画：路由切换后 page 带 page--enter ---
+    ok('page_enter_on_switch', !!q('.page--enter'), 'class=' + (q('.page') || {}).className);
+
+    // --- 自定义：改第一个动作名 + 新增一个动作，保存 ---
+    const nameInput = card0().querySelector('.ex-edit-row [data-f="name"]');
+    nameInput.value = '自定义卧推X';
+    nameInput.dispatchEvent(new (win().Event)('input', { bubbles: true }));
+
+    // 添加动作（tpl-add-ex 只改 DOM）；用实时引用，避免拿到旧节点
+    card0().querySelector('[data-act="tpl-add-ex"]').click();
+    await sleep(120);
+    const rowsAfterAdd = card0().querySelectorAll('.ex-edit-row').length;
+    ok('tpl_add_ex_adds_row', rowsAfterAdd === pushRows + 1, 'rows=' + rowsAfterAdd + ' base=' + pushRows);
+    // 填上新动作名，否则保存时被过滤
+    const newRow = card0().querySelectorAll('.ex-edit-row')[pushRows];
+    if (newRow) {
+      newRow.querySelector('[data-f="name"]').value = '自定义侧平举';
+      newRow.querySelector('[data-f="sets"]').value = '4';
+      newRow.querySelector('[data-f="repMax"]').value = '12';
+      newRow.querySelector('[data-f="currentWeight"]').value = '7.5';
+    }
+
+    // 保存 → 应跳回 plan-list
+    q('[data-act="plan-save"]').click();
+    await sleep(300);
+    ok('saved_back_to_list', win().location.hash.indexOf('plan-list') >= 0, 'hash=' + win().location.hash);
+
+    // --- 存储：plan.workoutTemplates 落盘且含新动作；旧 exercises 字段不再写入 ---
+    const p0 = plans0();
+    const tpls = (p0 && p0.workoutTemplates) || {};
+    ok('workout_templates_saved', !!tpls[FORCED],
+       p0 && p0.workoutTemplates ? 'splits=' + Object.keys(p0.workoutTemplates).join(',') : 'none');
+    const pushEx = (tpls[FORCED] && tpls[FORCED].exercises) || [];
+    ok('custom_rename_saved', pushEx.some((e) => e.name === '自定义卧推X'),
+       pushEx.map((e) => e.name).join('|'));
+    ok('custom_add_saved', pushEx.some((e) => e.name === '自定义侧平举' && e.sets === 4 && e.currentWeight === 7.5));
+    ok('empty_name_filtered', pushEx.length === pushRows + 1, 'n=' + pushEx.length + ' expect=' + (pushRows + 1));
+    ok('legacy_exercises_removed', !('exercises' in (p0 || {})) || p0.exercises === undefined,
+       'has=' + ('exercises' in (p0 || {})));
+
+    // --- 训练页：今日分化已被固定为 push，应显示自定义动作 ---
+    await go('workout');
+    await until(() => (q('.app-shell') || doc().body).textContent.indexOf('自定义卧推X') >= 0);
+    const txt = (q('.app-shell') || doc().body).textContent;
+    ok('workout_shows_custom', txt.indexOf('自定义卧推X') >= 0 && txt.indexOf('自定义侧平举') >= 0);
+    ok('workout_shows_new_weight', txt.indexOf('7.5') >= 0, '');
+    ok('workout_ex_count', qa('.set-grid').length === pushRows + 1, 'grids=' + qa('.set-grid').length + ' expect=' + (pushRows + 1));
+
+    // --- 环心文案：WEEK 本周进度 ---
+    await go('home');
+    await until(() => q('.ring-center__top'));
+    ok('center_label_week', (q('.ring-center__top') || {}).textContent === 'WEEK',
+       'got=' + ((q('.ring-center__top') || {}).textContent || ''));
+    ok('no_eve_text', (q('.ring-center') || doc().body).textContent.indexOf('距除夕') < 0);
+
+    // --- 宏量卡可点：首页四卡跳记餐 ---
+    const macroCard0 = q('.macro-card');
+    ok('macro_card_clickable', !!macroCard0 && macroCard0.dataset.act === 'nav' && macroCard0.dataset.route === 'log-meal');
+    if (macroCard0) {
+      macroCard0.click();
+      await sleep(240);
+      ok('macro_card_navigates', win().location.hash.indexOf('log-meal') >= 0, 'hash=' + win().location.hash);
+    }
+
+    // --- 打卡页改候选选择模式：无 PROGRESS 重复块，按肌群出候选 ---
+    await go('checkin');
+    await sleep(160);
+    ok('checkin_no_progress_dup', (q('.app-shell') || doc().body).textContent.indexOf('PROGRESS') < 0);
+    ok('checkin_candidates', qa('.ex-cand').length > 0, 'n=' + qa('.ex-cand').length);
+  } catch (e) { R.push('ERROR  ' + (e && e.message ? e.message : String(e))); }
+  out.textContent = 'CUSTOM_RESULT\n' + R.join('\n');
+})();
+</script>
+</body></html>

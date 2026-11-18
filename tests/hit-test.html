@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>hit probe</title></head>
+<body>
+<iframe id="f" src="../index.html#/home" style="width:390px;height:844px;border:0"></iframe>
+<pre id="result">PENDING</pre>
+<script>
+const R = [];
+const ok = (n, c, e) => R.push((c ? 'PASS' : 'FAIL') + '  ' + n + (e ? '  ' + e : ''));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const f = document.getElementById('f');
+const doc = () => f.contentDocument;
+const win = () => f.contentWindow;
+const q = (s) => doc().querySelector(s);
+const qa = (s) => Array.from(doc().querySelectorAll(s));
+const out = document.getElementById('result');
+async function until(fn, ms = 5000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { try { if (fn()) return true; } catch (e) {} await sleep(50); }
+  return false;
+}
+const go = async (r) => { win().location.hash = '#/' + r; await sleep(240); };
+
+// 真实鼠标命中：取元素中心点，看浏览器会把这个位置的点击交给谁
+function hits(el) {
+  if (!el) return false;
+  el.scrollIntoView({ block: 'center', inline: 'center' });
+  const r = el.getBoundingClientRect();
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  if (x < 0 || y < 0 || x > win().innerWidth || y > win().innerHeight) return false;
+  const hit = doc().elementFromPoint(x, y);
+  return !!hit && (el === hit || el.contains(hit));
+}
+function realClick(el) {
+  el.scrollIntoView({ block: 'center', inline: 'center' });
+  const r = el.getBoundingClientRect();
+  doc().elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    .dispatchEvent(new (win().MouseEvent)('click', { bubbles: true, cancelable: true }));
+}
+function auditClickable(tag) {
+  const els = qa('button, a, input, select, [data-act]');
+  const blocked = els.filter((el) => {
+    const cs = win().getComputedStyle(el);
+    const intentionallyOff = el.disabled || el.classList.contains('ctrl-disabled') ||
+      el.classList.contains('btn-para--disabled') || el.classList.contains('is-disabled');
+    return cs.pointerEvents === 'none' && !intentionallyOff;
+  });
+  ok(tag + '_clickable_total', els.length > 0, 'n=' + els.length);
+  ok(tag + '_none_blocked', blocked.length === 0,
+     'blocked=' + blocked.length + ' ' + blocked.slice(0, 3).map((e) => e.tagName + '.' + e.className).join('|'));
+  return blocked.length;
+}
+(async () => {
+  try {
+    win().localStorage.clear();
+    await until(() => doc() && q('.app-shell'));
+    ok('app_shell_ready', !!q('.app-shell'));
+    const shell = q('.app-shell');
+    ok('shell_pointer_events_auto', win().getComputedStyle(shell).pointerEvents === 'auto',
+       'got=' + win().getComputedStyle(shell).pointerEvents);
+    auditClickable('home');
+    // 首页已删待办与工具条：不应再有 todo-toggle / plan-drawer-open
+    ok('home_no_todo', !q('[data-act="todo-toggle"]'));
+    ok('home_no_toolbar', !q('[data-act="plan-drawer-open"]') && !q('.home-toolbar'));
+    ok('hit_tab_item', hits(qa('.tab-bar__item')[1]));
+
+    // 打卡页：候选确认（训练日）或休息提示（休息日），两种情况都合法
+    await go('checkin');
+    await until(() => q('.ex-cand') || q('.hint'));
+    auditClickable('checkin');
+    const conf = q('[data-act="ex-confirm"]');
+    if (conf) {
+      ok('hit_ex_confirm', hits(conf));
+      realClick(conf);
+      await sleep(240);
+      ok('real_click_confirms_ex', !!q('.ex-cand.is-done'), 'is-done=' + !!q('.ex-cand.is-done'));
+      // 首页内环应显示 1（训练项自动勾）
+      await go('home');
+      await until(() => q('.ring-center__today'));
+      ok('home_ring_auto_updated',
+         /^1/.test((q('.ring-center__today') || {}).textContent.trim()),
+         (q('.ring-center__today') || {}).textContent);
+    } else {
+      ok('checkin_rest_hint', bodyTextIncludes('休息') || !!q('.hint'), 'rest/no-plan day');
+    }
+
+    await go('log-meal');
+    await until(() => q('[data-act="food-add"][data-id="egg_boiled"]'));
+    auditClickable('log_meal');
+    ok('hit_food_add', hits(q('[data-act="food-add"][data-id="egg_boiled"]')));
+    ok('hit_search_input', hits(q('#food-search')));
+
+    await go('plan-edit');
+    await until(() => q('.pattern-item select'));
+    auditClickable('plan_edit');
+    ok('hit_pattern_select', hits(q('.pattern-item select')));
+    ok('hit_save_button', hits(q('[data-act="plan-save"]')));
+  } catch (e) { R.push('ERROR  ' + (e && e.message ? e.message : String(e))); }
+  out.textContent = 'HIT_RESULT\n' + R.join('\n');
+})();
+function bodyTextIncludes(t) {
+  return ((doc().querySelector('.app-shell') || doc().body).textContent || '').indexOf(t) >= 0;
+}
+</script>
+</body></html>

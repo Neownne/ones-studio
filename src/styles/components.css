@@ -1,0 +1,192 @@
+/* ==========================================================================
+   one's studio — components：斜切卡 / 平行四边形按钮 / tab-bar /
+   hint 终端标签块 / 编号徽章 / 扫描线
+   来源：DESIGN.md v2.0 §4.1 / §4.3 / §4.4 / §4.6
+   依赖：tokens.css → base.css
+   纪律：层级 = 底色阶差 + 1px 描边 + 0 blur 硬偏移；零软阴影/发光/模糊；
+        可点元素热区 ≥44×44px；切角不影响可点区；装饰层不压数字。
+   ========================================================================== */
+
+/* ---- 斜切卡：右上 / 左下各切 --cut（§4.3） ----
+   注意：clip-path 会裁掉切角斜边上的 1px 描边，描边保留在四条直边上，
+   斜边靠 panel 与 canvas 的底色阶差立形 —— 符合「层级靠阶差」纪律。 */
+.card-skew {
+  background: var(--panel-0);
+  border: 1px solid var(--line);
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--cut)) 0,
+    100% var(--cut),
+    100% 100%,
+    var(--cut) 100%,
+    0 calc(100% - var(--cut))
+  );
+  padding: 16px;
+}
+.card-skew--panel-1 { background: var(--panel-1); }
+.card-skew--panel-2 { background: var(--panel-2); }
+
+/* ---- 平行四边形按钮：skewX(-24°)（§4.3） ----
+   文字用内层 <span> 反斜回正；min 44×44px 保证热区。 */
+.btn-para {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 20px;
+  transform: skewX(var(--skew));
+  background: var(--panel-1);
+  border: 1px solid var(--line);
+  color: var(--text-1);
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-para > span {
+  position: relative;
+  z-index: 1;
+  transform: skewX(calc(var(--skew) * -1));   /* 标签回正 */
+}
+
+/* 主行动：青柠（≤5% 配额）。*/
+.btn-para--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--canvas);
+  font-weight: 400;
+}
+
+/* 警告 / 破坏性操作：amber + 更密斜纹（5px）+ 文案，不用红色（§4.1 / §4.4）。 */
+.btn-para--warn {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--canvas);
+  overflow: hidden;
+}
+.btn-para--warn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(10, 10, 10, .22) 0,
+    rgba(10, 10, 10, .22) 2px,
+    transparent 2px,
+    transparent var(--warn-pitch)
+  );
+}
+
+/* 真禁用：text-4 文字、无按下反馈、不响应点击。 */
+.btn-para--disabled,
+.btn-para:disabled {
+  background: var(--panel-1);
+  border-color: var(--line);
+  color: var(--text-4);
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ---- tab-bar：6 tab + 文字标签 + 青柠选中斜切块（§3 / §4.6.3） ---- */
+.tab-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  height: calc(56px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--canvas);
+  border-top: 1px solid var(--line);
+}
+.tab-bar__item {
+  position: relative;
+  flex: 1;
+  min-width: 44px;                            /* 热区 ≥44px */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+.tab-bar__label {
+  position: relative;
+  z-index: 1;
+  font-family: "Cascadia Mono", "SF Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+/* 选中态：青柠斜切块（≤5% 配额），文字反为 canvas 深色 */
+.tab-bar__item.is-active { color: var(--canvas); }
+.tab-bar__item.is-active::before {
+  content: "";
+  position: absolute;
+  inset: 8px 6px;
+  background: var(--accent);
+  transform: skewX(var(--skew));
+}
+
+/* ---- hint：终端式标签块，首页 L1 / 二级页 L2 两档（§4.4 装饰纪律） ---- */
+.hint {
+  font-family: "Cascadia Mono", "SF Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.hint__label {
+  display: block;
+  color: var(--accent-dim);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.hint__label::before { content: "// "; }
+.hint__text { color: var(--text-2); }
+/* L1：首页 —— 二级面板底 + 1px 描边，成块 */
+.hint--l1 {
+  background: var(--panel-1);
+  border: 1px solid var(--line);
+  padding: 12px 16px;
+}
+/* L2：二级页 —— 仅左侧 1px 线，无底无边框，更轻 */
+.hint--l2 {
+  border-left: 1px solid var(--line);
+  padding: 4px 0 4px 12px;
+}
+
+/* ---- 编号徽章：青柠底 + canvas 数字（≤5% 配额，§4.1 编号用途） ---- */
+.badge-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  background: var(--accent);
+  transform: skewX(var(--skew));
+}
+.badge-num > span {
+  transform: skewX(calc(var(--skew) * -1));
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--canvas);
+}
+
+/* ---- 扫描线：仅启动页，3px 循环暗线（§4.4） ---- */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;                       /* 装饰层不拦截点击 */
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, .28) 0,
+    rgba(0, 0, 0, .28) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}

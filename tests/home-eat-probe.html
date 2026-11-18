@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>home + eat probe</title></head>
+<body>
+<iframe id="f" src="../index.html#/home" style="width:390px;height:844px;border:0"></iframe>
+<pre id="result">PENDING</pre>
+<script>
+const R = [];
+const ok = (n, c, e) => R.push((c ? 'PASS' : 'FAIL') + '  ' + n + (e ? '  ' + e : ''));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const f = document.getElementById('f');
+const doc = () => f.contentDocument;
+const win = () => f.contentWindow;
+const q = (s) => doc().querySelector(s);
+const qa = (s) => Array.from(doc().querySelectorAll(s));
+const out = document.getElementById('result');
+async function until(fn, ms = 6000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { try { if (fn()) return true; } catch (e) {} await sleep(50); }
+  return false;
+}
+const go = async (r) => { win().location.hash = '#/' + r; await sleep(240); };
+const bodyText = () => (q('.app-shell') || doc().body).textContent || '';
+
+const FAKE_JSON = JSON.stringify({ candidates: [
+  { name: 'AI方案A', meals: [{ slot: '午餐', items: [{ name: 'AI牛肉饭', qty: '1份', kcal: 620, protein: 28, carb: 85, fat: 17 }] }], total: { kcal: 620, protein: 28, carb: 85, fat: 17 } },
+] });
+
+(async () => {
+  try {
+    win().localStorage.clear();
+    await until(() => doc() && q('.app-shell'));
+    ok('home_ready', !!q('.app-shell'));
+
+    // ---- 首页：本周环 + 倒计时小字 + 精简（无工具条/无待办模块）----
+    ok('center_is_week', (q('.ring-center__top') || {}).textContent === 'WEEK', (q('.ring-center__top') || {}).textContent);
+    ok('center_pct', /%/.test((q('.ring-center__days') || {}).textContent || ''), (q('.ring-center__days') || {}).textContent);
+    const headCap = (q('.page-head .type-caption') || {}).textContent || '';
+    ok('countdown_in_header', headCap.indexOf('倒计时') >= 0, headCap);
+    ok('no_ring_legend', !q('.ring-legend'));
+    ok('today_count_kept', !!q('.ring-center__today .sep') && /今日/.test((q('.ring-center__today') || {}).textContent || ''), (q('.ring-center__today') || {}).textContent);
+    const cvs = q('#dual-ring');
+    ok('ring_aria_week', cvs && (cvs.getAttribute('aria-label') || '').indexOf('本周') >= 0, cvs && cvs.getAttribute('aria-label'));
+    // 计划/历史入口与 task 模块已删
+    ok('no_toolbar', !q('.home-toolbar'));
+    ok('no_plan_drawer_btn', !q('[data-act="plan-drawer-open"]'));
+    ok('no_todo_list', !q('.todo-list') && !q('[data-act="todo-toggle"]'));
+
+    // ---- 打卡页：候选选择模式（训练日有候选，休息日给提示）----
+    await go('checkin');
+    await until(() => q('.ex-cand') || q('.hint'));
+    const cands = qa('.ex-cand');
+    if (cands.length) {
+      ok('checkin_candidates', cands.length >= 3, 'n=' + cands.length);
+      const name0 = (q('.ex-cand__name') || {}).textContent;
+      // 换一个：同肌群、名称变化
+      qa('[data-act="ex-swap"]')[0].click(); await sleep(220);
+      const name1 = (q('.ex-cand__name') || {}).textContent;
+      ok('ex_swap_changes', name1 !== name0 && !!name1, `${name0}→${name1}`);
+      // 确认：记录完成 → is-done；再次确认取消
+      qa('[data-act="ex-confirm"]')[0].click(); await sleep(220);
+      ok('ex_confirm_done', !!q('.ex-cand.is-done'));
+      const saved = JSON.parse(win().localStorage.getItem('os:logs:' + new Date().toISOString().slice(0, 7)) || '{}');
+      const todayLog = saved[Object.keys(saved).sort().pop()];
+      ok('ex_confirm_persisted', !!(todayLog && todayLog.workout && (todayLog.workout.selections || []).some((s) => s.confirmed)),
+         JSON.stringify((todayLog || {}).workout || null).slice(0, 80));
+      // 确认后仍可换（锁定可更换）
+      qa('[data-act="ex-swap"]')[0].click(); await sleep(220);
+      const name2 = (q('.ex-cand.is-done .ex-cand__name') || q('.ex-cand__name') || {}).textContent;
+      ok('ex_swap_after_lock', !!name2 && name2 !== name1, `${name1}→${name2}`);
+
+      // 锻炼条件：三个 chip；切徒手 → 未确认候选全换徒手，已确认的按设计保留不动
+      const chips = qa('.cond-chip');
+      ok('cond_chips_3', chips.length === 3, 'n=' + chips.length);
+      const GEAR = ['史密斯卧推', '飞鸟机夹胸', '高位下拉', '坐姿划船', '直臂下压', '面拉', '绳索下压', '哈克深蹲', '史密斯罗马尼亚硬拉', '坐姿腿屈伸', '俯卧腿弯举', '悬垂举腿', '哑铃平板卧推', '上斜哑铃卧推', '哑铃飞鸟', '单臂哑铃划船', '哑铃俯身划船', '坐姿哑铃肩推', '哑铃侧平举', '哑铃前平举', '哑铃俯身飞鸟', '哑铃弯举', '锤式弯举', '颈后臂屈伸', '哑铃箭步蹲', '哑铃罗马尼亚硬拉'];
+      q('.cond-chip[data-v="none"]').click(); await sleep(260);
+      const condRows = qa('.ex-cand').map((el) => ({
+        name: ((el.querySelector('.ex-cand__name') || {}).textContent || '').trim(),
+        done: el.classList.contains('is-done'),
+      }));
+      const pending = condRows.filter((r) => !r.done);
+      ok('cond_none_pending_bodyweight', pending.length > 0 && pending.every((r) => GEAR.indexOf(r.name) < 0),
+         pending.map((r) => r.name).join('|'));
+      // 已确认的那条不会被条件切换冲掉（保留用户已完成的记录）
+      ok('cond_keeps_confirmed', condRows.some((r) => r.done && r.name === name2), 'name2=' + name2);
+      ok('cond_none_persisted', JSON.parse(win().localStorage.getItem('os:settings') || '{}').trainingCond === 'none');
+    } else {
+      ok('checkin_rest_hint', bodyText().indexOf('休息') >= 0, bodyText().slice(0, 60));
+    }
+
+    // 历史页：直接导航 → 网格方块 + 图例
+    await go('history');
+    await until(() => q('.history-grid'));
+    ok('history_grid_cells', qa('.history-grid .hc').length >= 14, 'cells=' + qa('.history-grid .hc').length);
+    ok('history_legend', !!q('.history-legend'));
+
+    // ---- 内置生成：无需配置 ----
+    await go('log-meal');
+    const genBtn = q('.btn-para--primary[data-act="eat-suggest"]');
+    ok('builtin_entry_always_on', !!genBtn);
+    genBtn.click(); await sleep(220);
+    ok('goto_eat_plan', win().location.hash.indexOf('eat-plan') >= 0);
+    ok('builtin_no_config_needed', !!q('[data-act="eat-generate"]'));
+    q('#eat-picked').value = '鸡腿';
+    q('[data-act="eat-generate"]').click();
+    await sleep(220);
+    ok('builtin_candidates_3', qa('.tpl-card').length === 3, 'n=' + qa('.tpl-card').length);
+    ok('builtin_shows_food_names', /饭|面|蛋|鸡胸/.test(bodyText()), bodyText().slice(0, 60));
+
+    // 条目可换：换第一个条目 → 名称变化
+    const row0 = q('.meal-row .type-body');
+    const fname0 = row0 ? row0.textContent : '';
+    q('.meal-row [data-act="eat-swap"]').click(); await sleep(220);
+    const fname1 = (q('.meal-row .type-body') || {}).textContent;
+    ok('eat_swap_changes', !!fname1 && fname1 !== fname0, `${fname0}→${fname1}`);
+
+    // 内置采纳第 1 组
+    qa('[data-act="eat-apply"]')[0].click();
+    await sleep(260);
+    ok('builtin_applied_back', win().location.hash.indexOf('log-meal') >= 0);
+    const logged = qa('[data-act="food-del"]').length;
+    ok('builtin_applied_foods', logged >= 4, 'logged=' + logged);
+
+    // 采纳后首页内环自动更新（≥5 条食物 → 5 个锚点）
+    await go('home');
+    await until(() => q('.ring-center__today'));
+    ok('home_ring_after_adopt', /^[56]/.test((q('.ring-center__today') || {}).textContent.trim()),
+       (q('.ring-center__today') || {}).textContent);
+
+    // ---- AI 生成：配置 + mock fetch ----
+    win().localStorage.setItem('os:ai_config',
+      JSON.stringify({ base_url: 'https://api.fake.com', api_key: 'sk-probe', model: 'm' }));
+    await go('eat-plan');
+    ok('ai_button_when_configured', !!q('[data-act="eat-generate-ai"]'));
+    let fetchArgs = null;
+    win().fetch = (url, opts) => { fetchArgs = { url: String(url), opts }; return Promise.resolve({ ok: true, json: async () => ({ choices: [{ message: { content: FAKE_JSON } }] }) }); };
+    q('[data-act="eat-generate-ai"]').click();
+    await until(() => bodyText().indexOf('AI牛肉饭') >= 0, 8000);
+    ok('ai_candidates_rendered', bodyText().indexOf('AI方案A') >= 0 && bodyText().indexOf('AI牛肉饭') >= 0);
+    ok('ai_fetch_url', fetchArgs && fetchArgs.url === 'https://api.fake.com/v1/chat/completions', fetchArgs && fetchArgs.url);
+    ok('ai_fetch_auth', fetchArgs && fetchArgs.opts.headers.Authorization === 'Bearer sk-probe');
+  } catch (e) { R.push('ERROR  ' + (e && e.message ? e.message : String(e))); }
+  out.textContent = 'HOME_EAT_RESULT\n' + R.join('\n');
+})();
+</script>
+</body></html>

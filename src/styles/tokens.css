@@ -1,0 +1,107 @@
+/* ==========================================================================
+   one's studio — 视觉 token（绝区零 ZZZ / 磁带未来主义朋克）
+   来源：DESIGN.md v2.0 §4.1（色板）/ §4.3（形态）/ §4.4（纹理）
+   纪律：青柠 #d8fa00 整屏 ≤5%；不引红色功能色；零软阴影/零发光/零模糊；
+        层级 = 底色阶差 + 1px 描边 + 0 blur 硬偏移。
+   引用顺序：tokens.css → base.css → components.css
+   ========================================================================== */
+
+:root {
+  /* ---- 色板（12 个，§4.1）；底色从近黑调亮为深灰，提升可读性 ---- */
+  --canvas:     #181a1d;                   /* 页面画布：深灰（原近黑 #0a0a0a） */
+  --panel-0:    #222528;                   /* 一级卡片 / 输入卡 */
+  --panel-1:    #2a2e32;                   /* 二级面板 */
+  --panel-2:    #33373b;                   /* 深嵌块 */
+  --line:       #3d4146;                   /* 1px 结构描边 / 分隔 */
+  --text-1:     #f2f2ee;                   /* 主文字 */
+  --text-2:     rgba(242, 242, 238, .58);  /* 次级 */
+  --text-3:     rgba(242, 242, 238, .40);  /* 说明 / 占位 */
+  --text-4:     rgba(242, 242, 238, .24);  /* 禁用 / 装饰 */
+  --accent:     #d8fa00;                   /* 唯一强调色：主行动/选中/进度弧/焦点/编号 */
+  --accent-dim: #b6d400;                   /* hover / 次级强调 / 环外标签 */
+  --amber:      #ffde00;                   /* 仅警告语义（超额/预警），不做交互强调 */
+  /* ---- 形态（§4.3） ---- */
+  --cut:  12px;                            /* 斜切卡切角尺寸（右上/左下） */
+  --skew: -24deg;                          /* 平行四边形 / 斜切色块倾角 */
+
+  /* ---- 硬偏移阴影（§4.3）：0 blur、纯色，只偏移不发散 ---- */
+  --offset-ink:  rgba(0, 0, 0, .55);
+  --offset-lime: rgba(216, 250, 0, .55);
+
+  /* ---- 纹理参数（§4.4） ---- */
+  --hazard-pitch: 11px;                    /* 45° 警戒带节距（品牌装饰） */
+  --warn-pitch:   5px;                     /* 警告密斜纹节距（amber 态，与警戒带疏密区分） */
+  --dot-pitch:    18px;                    /* 网点间距 */
+  --dot-size:     1px;                     /* 网点圆点直径 */
+}
+
+/* ==========================================================================
+   纹理工具类
+   说明：硬边双色条纹用 repeating-linear-gradient 实现，属 §4.4 指定的纹理，
+   不是「渐变铺底」（无色彩过渡、无插值），不违反零渐变纪律。
+
+   ⚠ 只有「独立装饰层 / 覆盖层」才能禁用指针事件。
+   .tx-dots 是 background-image 背景纹理，main.js 把它挂在 .app-shell 根节点上：
+   一旦给它 pointer-events:none，该值会被整棵子树继承，全站按钮 / tab /
+   输入框全部点不动。它不遮挡任何东西，绝不能进下面这条规则。
+   ========================================================================== */
+
+.tx-hazard, .tx-skew-block, .scanlines { pointer-events: none; }
+
+/* 45° 警戒带 —— 11px 节距、黄黑细条。用于：页面顶部分隔、空态、加载。
+   与警告态区分：警告用 amber + 5px 更密斜纹 + 文案，两者疏密不同，不混排。 */
+.tx-hazard {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--amber) 0,
+    var(--amber) 2px,
+    var(--canvas) 2px,
+    var(--canvas) var(--hazard-pitch)
+  );
+}
+
+/* 18px 网点 —— 1px 圆点、低透明。用于：画布背景。 */
+.tx-dots {
+  background-image: radial-gradient(
+    circle,
+    rgba(242, 242, 238, .08) var(--dot-size),
+    transparent var(--dot-size)
+  );
+  background-size: var(--dot-pitch) var(--dot-pitch);
+}
+
+/* 42×3 斜切色块 —— 青柠，用于标题下划线 / 强调（计入 ≤5% 配额）。 */
+.tx-skew-block {
+  width: 42px;
+  height: 3px;
+  background: var(--accent);
+  transform: skewX(var(--skew));
+}
+
+/* 硬偏移阴影：3/6/8px 偏移、0 blur、纯色（黑 .55）。 */
+.offset-3 { box-shadow: 3px 3px 0 var(--offset-ink); }
+.offset-6 { box-shadow: 6px 6px 0 var(--offset-ink); }
+.offset-8 { box-shadow: 8px 8px 0 var(--offset-ink); }
+
+/* 青柠硬偏移 —— 仅主行动 / 选中态使用（计入 ≤5% 配额）。 */
+.offset-3-lime { box-shadow: 3px 3px 0 var(--offset-lime); }
+.offset-6-lime { box-shadow: 6px 6px 0 var(--offset-lime); }
+.offset-8-lime { box-shadow: 8px 8px 0 var(--offset-lime); }
+
+/* ---- 浅色主题（设置页切换，[data-theme="light"] 驱动；荧光绿压深保对比） ---- */
+:root[data-theme="light"] {
+  --canvas:     #f2f3f0;
+  --panel-0:    #ffffff;
+  --panel-1:    #f7f8f6;
+  --panel-2:    #e9ebe6;
+  --line:       #d3d7d0;
+  --text-1:     #17181a;
+  --text-2:     rgba(23, 24, 26, .60);
+  --text-3:     rgba(23, 24, 26, .42);
+  --text-4:     rgba(23, 24, 26, .26);
+  --accent:     #6f8f00;
+  --accent-dim: #5f7c00;
+  --amber:      #c99500;
+  --offset-ink: rgba(0, 0, 0, .22);
+  --offset-lime: rgba(111, 143, 0, .4);
+}

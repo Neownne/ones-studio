@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>settings probe</title></head>
+<body>
+<iframe id="f" src="../index.html#/settings" style="width:390px;height:844px;border:0"></iframe>
+<pre id="result">PENDING</pre>
+<script>
+const R = [];
+const ok = (n, c, e) => R.push((c ? 'PASS' : 'FAIL') + '  ' + n + (e ? '  ' + e : ''));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const f = document.getElementById('f');
+const doc = () => f.contentDocument;
+const win = () => f.contentWindow;
+const q = (s) => doc().querySelector(s);
+const qa = (s) => Array.from(doc().querySelectorAll(s));
+const out = document.getElementById('result');
+async function until(fn, ms = 6000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { try { if (fn()) return true; } catch (e) {} await sleep(50); }
+  return false;
+}
+const go = async (r) => { win().location.hash = '#/' + r; await sleep(240); };
+const bodyText = () => (q('.app-shell') || doc().body).textContent || '';
+
+(async () => {
+  try {
+    win().localStorage.clear();
+    await until(() => doc() && q('.app-shell'));
+
+    // ---- 设置页渲染 ----
+    await go('settings');
+    ok('settings_shell', !!q('.app-shell'));
+    ok('avatar_present', !!q('.avatar'));
+    ok('avatar_initial_default', (q('.avatar__initial') || {}).textContent === '未', (q('.avatar__initial') || {}).textContent);
+    ok('profile_name_default', (q('.profile-hero__name') || {}).textContent === '未命名');
+    // 姓名下方不再显示计划名
+    ok('no_plan_name_under_avatar', bodyText().indexOf('先减后增') < 0, bodyText().slice(0, 80));
+    // 个人信息细项 + 历史记录 = 左弹行（≥5）；健身计划/AI 设置 = 导航行
+    ok('drawer_rows', qa('.setting-row--btn').length >= 5, 'n=' + qa('.setting-row--btn').length);
+    ok('nav_rows', qa('.setting-row[data-route]').length >= 2, 'n=' + qa('.setting-row[data-route]').length);
+    ok('theme_switch', !!q('[data-act="theme-toggle"]'));
+    ok('backup_buttons', !!q('[data-act="export"]') && !!q('[data-act="import"]'));
+
+    // ---- 名称细项：左侧弹层编辑并保存 ----
+    q('[data-act="drawer-open"][data-kind="profile-name"]').click();
+    await sleep(240);
+    ok('profile_drawer_opens_left', !!q('.drawer.drawer--left'), 'drawer=' + !!q('.drawer'));
+    ok('profile_drawer_has_input', !!q('.drawer #pf-one'));
+    q('.drawer #pf-one').value = '小王';
+    q('[data-act="pf-save-one"]').click();
+    await sleep(220);
+    ok('drawer_closed_after_save', !q('.drawer'));
+    ok('name_saved', (q('.profile-hero__name') || {}).textContent === '小王', (q('.profile-hero__name') || {}).textContent);
+    ok('avatar_initial_updated', (q('.avatar__initial') || {}).textContent === '小');
+    const savedProfile = JSON.parse(win().localStorage.getItem('os:settings') || '{}').profile || {};
+    ok('persisted', savedProfile.name === '小王');
+
+    // ---- 身高细项弹层 ----
+    q('[data-act="drawer-open"][data-kind="profile-height"]').click();
+    await sleep(220);
+    q('.drawer #pf-one').value = '182';
+    q('[data-act="pf-save-one"]').click();
+    await sleep(220);
+    ok('height_saved', JSON.parse(win().localStorage.getItem('os:settings')).profile.height === '182');
+    ok('height_row_shows', bodyText().indexOf('182 cm') >= 0, bodyText().slice(0, 100));
+
+    // ---- 性别弹层：选择即保存 ----
+    q('[data-act="drawer-open"][data-kind="profile-gender"]').click();
+    await sleep(220);
+    ok('gender_drawer', !!q('.drawer [data-act="pf-gender"]'));
+    q('.drawer [data-act="pf-gender"][data-v="male"]').click();
+    await sleep(220);
+    ok('gender_saved', JSON.parse(win().localStorage.getItem('os:settings')).profile.gender === 'male');
+    ok('gender_row_shows', bodyText().indexOf('男') >= 0);
+
+    // ---- 历史记录：左侧弹层显示热力图 ----
+    q('[data-act="drawer-open"][data-kind="history"]').click();
+    await sleep(260);
+    ok('history_drawer_left', !!q('.drawer.drawer--left'));
+    ok('history_drawer_cells', qa('.drawer .history-grid .hc').length >= 14, 'cells=' + qa('.drawer .history-grid .hc').length);
+    q('[data-act="drawer-close"]').click();
+    await sleep(200);
+    ok('history_drawer_closes', !q('.drawer'));
+
+    // ---- 主题切换（验证浅色颜色真的变了，再切回 dark）----
+    const before = doc().documentElement.dataset.theme || 'dark';
+    q('[data-act="theme-toggle"]').click();
+    await sleep(200);
+    const after = doc().documentElement.dataset.theme;
+    ok('theme_toggled', after !== before, `${before}→${after}`);
+    const lightBg = win().getComputedStyle(doc().body).backgroundColor;
+    ok('light_bg_applied', lightBg === 'rgb(242, 243, 240)', lightBg);
+    q('[data-act="theme-toggle"]').click(); // 切回 dark
+    await sleep(180);
+    const darkBg = win().getComputedStyle(doc().body).backgroundColor;
+    ok('back_to_dark', darkBg === 'rgb(24, 26, 29)', darkBg);
+
+    // ---- tab 变 ME + 首页无待办列表（进度自动）----
+    await go('home');
+    const tabs = qa('.tab-bar__item');
+    ok('tab_count_6', tabs.length === 6, 'n=' + tabs.length);
+    ok('tab_last_me', (tabs[5] || {}).textContent.trim() === 'ME', (tabs[5] || {}).textContent);
+    ok('home_no_todo_list', !q('.todo-list') && !q('[data-act="todo-toggle"]'));
+    const todayEl = q('.ring-center__today');
+    ok('today_6', !!q('.ring-center__today .sep') && /今日/.test((todayEl || {}).textContent || ''), (todayEl || {}).textContent);
+  } catch (e) { R.push('ERROR  ' + (e && e.message ? e.message : String(e))); }
+  out.textContent = 'SETTINGS_RESULT\n' + R.join('\n');
+})();
+</script>
+</body></html>
